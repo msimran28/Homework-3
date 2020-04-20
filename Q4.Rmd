@@ -1,0 +1,179 @@
+---
+title: "Q4 NutrientH20 : Market Segmentation Analysis"
+author: "Simran, Swatee & David"
+date: "18/04/2020"
+output: md_document
+---
+
+## Q4 NutrientH20 : Market Segmentation Analysis
+
+The goal is to identify market segments for the Company so that it knows what appeals to the consumers categorically. We therefore need to see if we can put variables in boxes to give us a general idea of the nature of the people that dictate these boxes. We do this through three steps and two methods:
+
+**Step 1: Find if some variables are highly correlated to see if we can box them together maybe**
+**Step 2, Mehtod 1: Make boxes through clustering (by kmeans) and report the resulting market segments.**
+**Step 3, Method 2: Make Principle Components and report the market segments.**
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(mosaic)
+library(cluster) #Gap-Statistic
+library(corrplot) 
+library(Hmisc)
+library(foreach)
+library(ggplot2)
+library(factoextra)
+library(NbClust)
+library(gridExtra)
+library(LICORS) #for kmeans++
+NH20 = read.csv('./social_marketing.csv', header=TRUE)
+
+NH20_num_data <- NH20[, sapply(NH20, is.numeric)]
+summary(NH20_num_data)
+```
+
+# Step 1: Correlation between variables
+```{r chunk1, echo = FALSE}
+NH20_num_data.rcorr = rcorr(as.matrix(NH20_num_data))
+corrplot(NH20_num_data.rcorr$r, type="upper", order="hclust", 
+        NH20_num_data.p = NH20_num_data.rcorr$P , sig.level = 0.01, insig = "blank")
+```
+
+There are a lot of combinations.We can use some of these when we make boxes and would want to combine them through multicorrelation between the variables.
+
+# Step 2, Method 1: Clustering through k-means
+
+Once we scale and center the data, we need to decide how many clusters do we want. This is done. We try three methods to figure out the number of 'K'.
+
+**1. Elbow Method**
+
+```{r chunk2, echo = FALSE}
+NH20_num_data_scaled = scale(NH20_num_data[,1:36], center=TRUE, scale=TRUE)
+mu = attr(NH20_num_data_scaled,"scaled:center")
+sigma = attr(NH20_num_data_scaled,"scaled:scale")
+
+gc()
+k_grid = seq(2, 20, by=1)
+SSE_grid = foreach(k = k_grid, .combine='c') %do% {
+  cluster_k = kmeans(NH20_num_data_scaled, k, iter.max = 100, nstart=50)
+  cluster_k$tot.withinss
+}
+plot(k_grid, SSE_grid)
+```
+
+Conclusion: K = 10
+*Since this is based on a visual representation of the Elbow, I would like to verify this with another method.*
+
+**2. CH Grid Method**
+
+```{r chunk3, echo = FALSE}
+N = nrow(NH20_num_data_scaled)
+CH_grid = foreach(k = k_grid, .combine='c') %do% {
+  cluster_k = kmeans(NH20_num_data_scaled, k, iter.max = 100, nstart=50, algorithm = c("Lloyd"))
+  W = cluster_k$tot.withinss
+  B = cluster_k$betweenss
+  CH = (B/W)*((N-k)/(k-1))
+  CH
+}
+plot(k_grid, CH_grid)
+```
+
+Conclusion: K = 2
+*Not as realistic.*
+
+**3. The Gap Statistic**
+```{r chunk4, echo = FALSE}
+NH20_num_data_scaled_gap = clusGap(NH20_num_data_scaled, FUN = kmeans, iter.max = 10000, nstart = 50, K.max = 10, B = 10, algorithm = c("Lloyd"))
+plot(NH20_num_data_scaled_gap)
+```
+
+Conclusion: K = 10 
+
+Since two of the three methods suggest K to be at 10, we will proceed with this number.
+
+Finally, we make 10 clusters.
+
+```{r chunk5, echo = FALSE}
+clust1 = kmeans(NH20_num_data_scaled, 10, nstart=25)
+clust1_plot = fviz_cluster(clust1, data = NH20_num_data_scaled, 
+                         ellipse.type = "euclid", # Concentration ellipse
+                         ggtheme = theme_classic(),geom = c("point")
+)
+
+clust1_plot
+```
+
+We analyse the cluster through their center means and categorize our market segment boxes accordingly. 
+
+```{r chunk6, echo = FALSE, include = FALSE}
+clust1$center[1,] #Art seekers - tv-film, music, art 
+clust1$center[2,] #The Dark end - adult, spam
+clust1$center[3,] #Family/ Household enthusiasts - food, family, parenting, religion, school, sports-fandom
+clust1$center[4,] #Current affairs enthusiasts - News, Politics
+clust1$center[5,] #Fitness Enthusiasts - Outdoors, Health&Nutrition, Personal fitness
+clust1$center[6,] #Social Media people - Photo-sharing, Fashion, Beauty, Cooking
+clust1$center[7,] #Inquisitive - Travel, Politics, News, Computers
+clust1$center[8,] #No info
+clust1$center[9,] #Young Sports enthusiasts - College uni, Sports playing, Online gaming
+clust1$center[10,] #Social Butterflies - Chatter, Photo-sharing, Shopping
+```
+
+7 Market segments recognised out of 10 clusters: 
+
+**1. Cluster 1 (Art seekers)** - These people showed an interest in tv-film, music and  art. 
+
+**2. Cluster 2 (The Dark end)** - Adult and spam tweets that were unfiltered out of the data set.
+
+**3. Cluster 3 (Family/ Household enthusiasts)** - These people showed an interest in Food, Family, Parenting, Religion, School and Sports-fandom.
+
+**4. Cluster 4 & 7 (Inquisitives)** -These people showed an interest in Travel, Politics, News and Computers.
+*(Cluster 7 reported tweets interested in just News and Politics, so I merged it into one segment)*
+
+**5. Cluster 5 (Fitness Enthusiasts)** - These people showed an interest in Outdoors, Health & Nutrition and Personal fitness.
+
+**6. Cluster 6 & 10 (Social Media enthusiasts)** - These people showed an interest in Photo-sharing, Fashion, Beauty, Cooking, Shopping and Chatter. 
+*(Another cluster reported tweets interested in Chatter, Photo-sharing and Shopping, so I merged it into one segment because of a high multicorrelation between chatter, photo-sharing, shopping and beauty)*
+
+**7. Cluster 9 (Young sports enthusiasts)** - These people showed an interest in College uni, Sports playing and Online gaming.
+
+
+# Step 3, Method 2: PCA clustering
+
+We use heirarchical clustering i.e the Cluster Dendogram Model that uses the PCAs to form clusters and make market segments accordingly.
+
+```{r chunk7}
+pr_NH20 = prcomp(NH20_num_data_scaled)
+summary(pr_NH20)
+scores= pr_NH20$rotation
+```
+
+We decide to take the first 10 PCAs we want to use from the 36 PCAs we have as they represent 60% of the original data. 
+Then, we use the information from those 10 PCAs to form the Dendogram Model as viewed below  and see the clusters thus formed.
+
+```{r chunk8, echo = FALSE}
+D_NH20 = dist(scores[,1:10])
+hclust_NH20 = hclust(D_NH20, method='complete')
+plot(hclust_NH20)
+```
+
+9 Market segments recognised from the clusters:
+
+**1. Cluster 1 (Dating):** These people showed interest only in Dating.
+
+**2. Cluster 2 (Art seekers):** These people showed an interest in Tv-film, Music and Art.
+
+**3. Cluster 3 (The Dark end) :** Adult and spam tweets that were unfiltered out of the data set.
+
+**4. Cluster 4 (Fitness Enthusiasts) :** These people showed an interest in Outdoors, Health & Nutrition and Personal fitness.
+
+**5. Cluster 5 (Unnamed) :** These people showed an interest in News and Automotive.
+
+**6. Cluster 6 (Inquisitives) :** These people showed an interest in Travel, Politics and Computers.
+
+**7. Cluster 7 (Young sports enthusiasts):** - These people showed an interest in College uni, Sports playing and Online gaming.
+
+**8. Cluster 8 & 9 (Social Media enthusiasts):**  These people showed an interest in Photo-sharing, Fashion, Beauty, Cooking, Shopping and Chatter. 
+*(Cluster 9 reported tweets interested in Chatter, Photo-sharing and Shopping, so I merged it into one segment because of a high multicorrelation between chatter, photo-sharing, shopping and beauty)*
+
+**9. Cluster 10 (Family/ Household enthusiasts)** - These people showed an interest in food, family and sports-fandom.
+
+*The PCA clustering has given us 2 extra clusters than the ones that normal clustering did.*
